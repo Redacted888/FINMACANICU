@@ -406,3 +406,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         roleHolder[ROLE_RISK] = riskSink;
         roleHolder[ROLE_GUARDIAN] = guardianSink;
         roleHolder[ROLE_BOOK] = bookSink;
+
+        emit DeskSinksRotated(treasurySink, oracleSink, riskSink, guardianSink, bookSink);
+        emit DeskRoleSet(ROLE_TREASURY, address(0), treasurySink);
+        emit DeskRoleSet(ROLE_ORACLE, address(0), oracleSink);
+        emit DeskRoleSet(ROLE_RISK, address(0), riskSink);
+        emit DeskRoleSet(ROLE_GUARDIAN, address(0), guardianSink);
+        emit DeskRoleSet(ROLE_BOOK, address(0), bookSink);
+
+        caps = FMTypes.RiskCaps({
+            maxMarketNotional: 9_100_000,
+            maxUserNotional: 210_000,
+            maxExposureWindow: 97_000,
+            maxFeeBps: 420,
+            maxRebateBps: 175
+        });
+        emit CapsUpdated(caps);
+    }
+
+    // ---------------------------
+    // Role admin functions
+    // ---------------------------
+    function setRole(bytes32 role, address who) external onlyOwner {
+        if (
+            role != ROLE_RISK && role != ROLE_ORACLE && role != ROLE_BOOK && role != ROLE_TREASURY && role != ROLE_GUARDIAN
+        ) revert FMK_BadRole();
+        address prev = roleHolder[role];
+        roleHolder[role] = who;
+        emit DeskRoleSet(role, prev, who);
+    }
+
+    function rotateSinks(address treasury, address oracle, address risk, address guardian, address book) external onlyOwner {
+        treasurySink = treasury;
+        oracleSink = oracle;
+        riskSink = risk;
+        guardianSink = guardian;
+        bookSink = book;
+
+        roleHolder[ROLE_TREASURY] = treasury;
+        roleHolder[ROLE_ORACLE] = oracle;
+        roleHolder[ROLE_RISK] = risk;
+        roleHolder[ROLE_GUARDIAN] = guardian;
+        roleHolder[ROLE_BOOK] = book;
+
+        emit DeskSinksRotated(treasury, oracle, risk, guardian, book);
+    }
+
+    modifier onlyRole(bytes32 role) {
+        if (msg.sender != roleHolder[role] && msg.sender != owner) revert FMK_NotRole(role);
+        _;
+    }
+
