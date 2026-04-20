@@ -508,3 +508,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
 
     function resumeMarket(uint64 marketId) external onlyRole(ROLE_GUARDIAN) {
         FMTypes.MarketStatus st = marketStatus[marketId];
+        if (st != FMTypes.MarketStatus.Halted) revert FMK_MarketNotOpen();
+        marketStatus[marketId] = FMTypes.MarketStatus.Open;
+        emit MarketResume(marketId, msg.sender);
+    }
+
+    function voidMarket(uint64 marketId, uint8 reason) external onlyRole(ROLE_GUARDIAN) {
+        FMTypes.MarketStatus st = marketStatus[marketId];
+        if (st == FMTypes.MarketStatus.Settled || st == FMTypes.MarketStatus.Voided) revert FMK_AlreadyFinal();
+        marketStatus[marketId] = FMTypes.MarketStatus.Voided;
+        marketResult[marketId] = 0;
+        emit MarketVoided(marketId, reason, msg.sender);
+    }
+
+    function setFeeSchedule(uint64 marketId, uint16 feeBps, uint16 makerRebateBps) external onlyRole(ROLE_RISK) {
+        if (feeBps > caps.maxFeeBps) revert FMK_BadConfig();
+        if (makerRebateBps > caps.maxRebateBps) revert FMK_BadConfig();
+        if (makerRebateBps > feeBps) revert FMK_BadConfig();
+        FMTypes.MarketConfig storage cfg = marketConfig[marketId];
+        if (marketStatus[marketId] == FMTypes.MarketStatus.None) revert FMK_BadMarket();
+        cfg.feeBps = feeBps;
+        cfg.makerRebateBps = makerRebateBps;
+        emit FeeScheduleUpdated(marketId, feeBps, makerRebateBps);
+    }
+
+    // ---------------------------
+    // Deposits / withdrawals
+    // ---------------------------
+    receive() external payable {
+        if (collateralToken != address(0)) revert FMK_TransferFailed();
+        _depositNative(msg.sender, msg.value);
+    }
+
+    function deposit(uint256 amount) external payable whenNotPaused nonReentrant {
+        if (collateralToken == address(0)) {
+            if (msg.value != amount) revert FMK_NativeValueMismatch();
+            _depositNative(msg.sender, amount);
+        } else {
+            if (msg.value != 0) revert FMK_NativeValueMismatch();
+            if (amount == 0) revert FMK_BadAmount();
+            collateralToken.safeTransferFrom(msg.sender, address(this), amount);
+            _bal[msg.sender].available += uint128(amount);
+            emit CollateralDeposited(msg.sender, collateralToken, amount, _bal[msg.sender].available);
+        }
+    }
+
+    function _depositNative(address user, uint256 amount) internal {
+        if (amount == 0) revert FMK_BadAmount();
+        _bal[user].available += uint128(amount);
+        emit CollateralDeposited(user, address(0), amount, _bal[user].available);
+    }
+
