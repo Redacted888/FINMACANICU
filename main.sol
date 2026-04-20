@@ -202,3 +202,54 @@ abstract contract OwnableSteps {
         emit OwnershipTransferred(prev, owner);
     }
 }
+
+abstract contract PausableSwitch is OwnableSteps {
+    error Paused();
+    error NotPaused();
+    event PausedState(bool paused);
+
+    bool public paused;
+
+    modifier whenNotPaused() {
+        if (paused) revert Paused();
+        _;
+    }
+
+    modifier whenPaused() {
+        if (!paused) revert NotPaused();
+        _;
+    }
+
+    function pause() external onlyOwner whenNotPaused {
+        paused = true;
+        emit PausedState(true);
+    }
+
+    function unpause() external onlyOwner whenPaused {
+        paused = false;
+        emit PausedState(false);
+    }
+}
+
+contract FinMacanicu is PausableSwitch, ReentrancyShield {
+    using SafeToken for address;
+
+    // ---------------------------
+    // Unique identifiers (bytes32)
+    // ---------------------------
+    bytes32 public constant FMK_DOMAIN = keccak256("FinMacanicu.FMK_DOMAIN.v7.terminal");
+    bytes32 public constant FMK_LEDGER = keccak256("FinMacanicu.FMK_LEDGER.alpha.signedRisk");
+    bytes32 public constant FMK_RISK_SALT = 0x512904022709deb9416b91058e12efd1377158b5fe4f4a055b9eca0749836d43;
+    bytes32 public constant FMK_ROUTE_SEED = 0x2367999dc78be26e203ffe884f9feaaf9924b6af4e8319c9dce2c2b03ef7db29;
+    bytes32 public constant FMK_ORDER_SEED = 0x56624119aced4476100abc669d8547080eb55bbbfd59459ae405b6a628f852a6;
+    bytes32 public constant FMK_MATCH_SEED = 0xd2a28a68968de1a454bd8486974cb40e3c78bd27340fc6221143c928bf475e8e;
+    bytes32 public constant FMK_AUDIT_TAG = 0x0305c8f3e20a7bd7f2399ed3e8cdb417c235f30f43e02a297a15cbfe566af1e1;
+    bytes32 public constant FMK_ENGINE_TAG = 0x0485644730f1b925edb24ef9b2bff11fa895fc7cf8b837e4fff32c840c3c392b;
+
+    // ---------------------------
+    // Roles (simple mapping)
+    // ---------------------------
+    bytes32 public constant ROLE_RISK = keccak256("FinMacanicu.ROLE_RISK");
+    bytes32 public constant ROLE_ORACLE = keccak256("FinMacanicu.ROLE_ORACLE");
+    bytes32 public constant ROLE_BOOK = keccak256("FinMacanicu.ROLE_BOOK");
+    bytes32 public constant ROLE_TREASURY = keccak256("FinMacanicu.ROLE_TREASURY");
