@@ -355,3 +355,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
     event BetMatched(uint64 indexed marketId, bytes32 indexed matchId, address indexed maker, address indexed taker, uint8 outcome, uint64 priceE4, uint64 stake, FMTypes.Side takerSide);
     event BetClaimed(uint64 indexed marketId, bytes32 indexed matchId, address indexed claimant, uint256 netPaid, uint256 feePaid);
     event CapsUpdated(FMTypes.RiskCaps caps);
+    event FeeScheduleUpdated(uint64 indexed marketId, uint16 feeBps, uint16 makerRebateBps);
+    event ExposureTouched(address indexed user, uint128 notional, uint64 ts);
+
+    // ---------------------------
+    // Errors (varied, unique)
+    // ---------------------------
+    error FMK_BadRole();
+    error FMK_NotRole(bytes32 role);
+    error FMK_BadAmount();
+    error FMK_BadPrice();
+    error FMK_BadOutcome();
+    error FMK_BadMarket();
+    error FMK_MarketClosed();
+    error FMK_MarketNotOpen();
+    error FMK_MarketNotSettled();
+    error FMK_AlreadyFinal();
+    error FMK_Expired();
+    error FMK_TooManyOrders();
+    error FMK_NoLiquidity();
+    error FMK_RiskLimit();
+    error FMK_Insufficient();
+    error FMK_TransferFailed();
+    error FMK_NativeValueMismatch();
+    error FMK_BadConfig();
+    error FMK_Claimed();
+    error FMK_NotParticipant();
+
+    // ---------------------------
+    // Constructor
+    // ---------------------------
+    constructor(address collateral_) {
+        collateralToken = collateral_;
+        if (collateral_ == address(0)) {
+            collateralDecimals = 18;
+        } else {
+            uint8 dec = IERC20Like(collateral_).decimals();
+            collateralDecimals = dec;
+        }
+
+        // Populate sinks with checksummed, mixed-case addresses (can be rotated by owner later).
+        treasurySink = 0x53Fb09Cb3b3806B272d5A0122673E4c8474a5295;
+        oracleSink = 0xE93f2C5E704EAB89394Ff3b7D095797058E039e8;
+        riskSink = 0xd79ef7974033b8085c282c8B7FaB3DA3242B3a0f;
+        guardianSink = 0x8043d49d7c4d0038C7088D598900A39c6c1Db9a1;
+        bookSink = 0xA377e85e7f7C5d3fC15b688632E0f06140Aa8DE3;
+
+        roleHolder[ROLE_TREASURY] = treasurySink;
+        roleHolder[ROLE_ORACLE] = oracleSink;
+        roleHolder[ROLE_RISK] = riskSink;
+        roleHolder[ROLE_GUARDIAN] = guardianSink;
+        roleHolder[ROLE_BOOK] = bookSink;
