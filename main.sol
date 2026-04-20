@@ -151,3 +151,54 @@ library FMFixed {
     function fee(uint256 amount, uint256 bps) internal pure returns (uint256) {
         return (amount * bps) / 10_000;
     }
+
+    function clampU64(uint256 x) internal pure returns (uint64) {
+        if (x > type(uint64).max) revert FMFixedOverflow();
+        return uint64(x);
+    }
+}
+
+abstract contract ReentrancyShield {
+    error Reentrancy();
+    uint256 private _lock;
+
+    modifier nonReentrant() {
+        if (_lock != 0) revert Reentrancy();
+        _lock = 1;
+        _;
+        _lock = 0;
+    }
+}
+
+abstract contract OwnableSteps {
+    error NotOwner();
+    error NotPendingOwner();
+    event OwnershipTransferInitiated(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+
+    address public owner;
+    address public pendingOwner;
+
+    constructor() {
+        owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    function transferOwnership(address next) external onlyOwner {
+        pendingOwner = next;
+        emit OwnershipTransferInitiated(owner, next);
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner) revert NotPendingOwner();
+        address prev = owner;
+        owner = pendingOwner;
+        pendingOwner = address(0);
+        emit OwnershipTransferred(prev, owner);
+    }
+}
