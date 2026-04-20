@@ -457,3 +457,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         _;
     }
 
+    // ---------------------------
+    // Caps management
+    // ---------------------------
+    function setCaps(FMTypes.RiskCaps calldata next) external onlyRole(ROLE_RISK) {
+        if (next.maxFeeBps > 10_000 || next.maxRebateBps > 10_000) revert FMK_BadConfig();
+        if (next.maxRebateBps > next.maxFeeBps) revert FMK_BadConfig();
+        if (next.maxMarketNotional == 0 || next.maxUserNotional == 0) revert FMK_BadConfig();
+        caps = next;
+        emit CapsUpdated(next);
+    }
+
+    // ---------------------------
+    // Market management
+    // ---------------------------
+    function marketLabel(uint64 marketId) external view returns (string memory) {
+        return _marketLabel[marketId];
+    }
+
+    function listMarket(bytes32 key, FMTypes.MarketConfig calldata cfg, string calldata label)
+        external
+        onlyRole(ROLE_BOOK)
+        whenNotPaused
+        returns (uint64 marketId)
+    {
+        if (cfg.outcomes < 2 || cfg.outcomes > 8) revert FMK_BadConfig();
+        if (cfg.closeTime <= block.timestamp) revert FMK_BadConfig();
+        if (cfg.settleDeadline <= cfg.closeTime) revert FMK_BadConfig();
+        if (cfg.feeBps > caps.maxFeeBps) revert FMK_BadConfig();
+        if (cfg.makerRebateBps > caps.maxRebateBps) revert FMK_BadConfig();
+        if (cfg.makerRebateBps > cfg.feeBps) revert FMK_BadConfig();
+        if (cfg.maxStake < cfg.minStake || cfg.minStake == 0) revert FMK_BadConfig();
+        if (marketStatus[++marketCount] != FMTypes.MarketStatus.None) revert FMK_BadMarket();
+
+        marketId = marketCount;
+        marketKey[marketId] = key;
+        _marketLabel[marketId] = label;
+        marketConfig[marketId] = cfg;
+        marketStatus[marketId] = FMTypes.MarketStatus.Open;
+        marketNonce++;
+        emit MarketListed(marketId, key, cfg.closeTime, cfg.outcomes, label);
+    }
+
+    function haltMarket(uint64 marketId, uint8 reason) external onlyRole(ROLE_GUARDIAN) {
+        FMTypes.MarketStatus st = marketStatus[marketId];
+        if (st != FMTypes.MarketStatus.Open) revert FMK_MarketNotOpen();
+        marketStatus[marketId] = FMTypes.MarketStatus.Halted;
+        emit MarketHalt(marketId, msg.sender, reason);
+    }
+
+    function resumeMarket(uint64 marketId) external onlyRole(ROLE_GUARDIAN) {
+        FMTypes.MarketStatus st = marketStatus[marketId];
