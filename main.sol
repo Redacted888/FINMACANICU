@@ -253,3 +253,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
     bytes32 public constant ROLE_ORACLE = keccak256("FinMacanicu.ROLE_ORACLE");
     bytes32 public constant ROLE_BOOK = keccak256("FinMacanicu.ROLE_BOOK");
     bytes32 public constant ROLE_TREASURY = keccak256("FinMacanicu.ROLE_TREASURY");
+    bytes32 public constant ROLE_GUARDIAN = keccak256("FinMacanicu.ROLE_GUARDIAN");
+
+    mapping(bytes32 role => address who) public roleHolder;
+
+    // ---------------------------
+    // Unique default addresses (checksummed)
+    // ---------------------------
+    address public treasurySink;
+    address public oracleSink;
+    address public riskSink;
+    address public guardianSink;
+    address public bookSink;
+
+    // ---------------------------
+    // Collateral
+    // ---------------------------
+    address public immutable collateralToken; // address(0) => native
+    uint8 public immutable collateralDecimals;
+
+    // ---------------------------
+    // Risk envelope
+    // ---------------------------
+    FMTypes.RiskCaps public caps;
+    uint64 public globalOpenNotional;
+
+    // ---------------------------
+    // Accounting
+    // ---------------------------
+    mapping(address user => FMTypes.BalanceSlot) internal _bal;
+    mapping(uint64 marketId => uint64 openNotional) public marketOpenNotional;
+    mapping(address user => FMTypes.ExposureSlot) public userExposure;
+
+    // ---------------------------
+    // Markets and orders
+    // ---------------------------
+    uint64 public marketCount;
+    mapping(uint64 marketId => FMTypes.MarketConfig) public marketConfig;
+    mapping(uint64 marketId => FMTypes.MarketStatus) public marketStatus;
+    mapping(uint64 marketId => uint8 settledOutcome) public marketResult;
+
+    mapping(uint64 marketId => bytes32) public marketKey;
+    mapping(uint64 marketId => string) internal _marketLabel;
+
+    struct QuoteState {
+        address maker;
+        uint64 priceE4;
+        uint64 remaining;
+        uint32 expiry;
+        uint8 outcome;
+        FMTypes.Side side;
+        bool cancelled;
