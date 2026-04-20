@@ -304,3 +304,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         uint8 outcome;
         FMTypes.Side side;
         bool cancelled;
+    }
+
+    mapping(bytes32 quoteId => QuoteState) public quotes;
+    mapping(uint64 marketId => bytes32[]) internal _marketQuoteIds;
+    mapping(address user => uint16) public openOrderCount;
+
+    struct MatchState {
+        address maker;
+        address taker;
+        uint64 priceE4;
+        uint64 stake;
+        uint8 outcome;
+        FMTypes.Side takerSide;
+        bool claimedMaker;
+        bool claimedTaker;
+    }
+
+    mapping(bytes32 matchId => MatchState) public matches;
+    mapping(uint64 marketId => bytes32[]) internal _marketMatchIds;
+
+    // ---------------------------
+    // Withdrawal escrow (pull)
+    // ---------------------------
+    mapping(address user => uint128) public pendingPayout;
+
+    // ---------------------------
+    // Safety / sequencing
+    // ---------------------------
+    uint64 public quoteNonce;
+    uint64 public matchNonce;
+    uint64 public marketNonce;
+
+    // ---------------------------
+    // Events (varied, unique)
+    // ---------------------------
+    event DeskRoleSet(bytes32 indexed role, address indexed previous, address indexed next);
+    event DeskSinksRotated(address treasury, address oracle, address risk, address guardian, address book);
+    event CollateralDeposited(address indexed user, address indexed asset, uint256 amount, uint256 newAvail);
+    event CollateralWithdrawQueued(address indexed user, uint256 amount, uint256 newPending);
+    event CollateralWithdrawn(address indexed user, uint256 amount);
+    event MarketListed(uint64 indexed marketId, bytes32 indexed key, uint32 closeTime, uint8 outcomes, string label);
+    event MarketHalt(uint64 indexed marketId, address indexed by, uint8 reasonCode);
+    event MarketResume(uint64 indexed marketId, address indexed by);
+    event MarketSettled(uint64 indexed marketId, uint8 outcome, address indexed oracle);
+    event MarketVoided(uint64 indexed marketId, uint8 reason, address indexed by);
+    event QuotePosted(uint64 indexed marketId, bytes32 indexed quoteId, address indexed maker, uint8 outcome, uint64 priceE4, uint64 size, uint32 expiry, FMTypes.Side side);
+    event QuoteReduced(bytes32 indexed quoteId, uint64 newRemaining, uint8 flags);
+    event QuoteCancelled(bytes32 indexed quoteId, address indexed by);
+    event BetMatched(uint64 indexed marketId, bytes32 indexed matchId, address indexed maker, address indexed taker, uint8 outcome, uint64 priceE4, uint64 stake, FMTypes.Side takerSide);
+    event BetClaimed(uint64 indexed marketId, bytes32 indexed matchId, address indexed claimant, uint256 netPaid, uint256 feePaid);
+    event CapsUpdated(FMTypes.RiskCaps caps);
