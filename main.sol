@@ -49,3 +49,54 @@ library FMTypes {
     }
 
     enum MarketStatus {
+        None,
+        Open,
+        Halted,
+        Settled,
+        Voided
+    }
+
+    struct MarketConfig {
+        uint32 closeTime;
+        uint32 settleDeadline;
+        uint16 feeBps;
+        uint16 makerRebateBps;
+        uint16 maxOrdersPerUser;
+        uint8 outcomes;
+        bool allowUnmatched;
+        uint64 minStake;
+        uint64 maxStake;
+    }
+
+    struct RiskCaps {
+        uint64 maxMarketNotional;
+        uint64 maxUserNotional;
+        uint32 maxExposureWindow;
+        uint16 maxFeeBps;
+        uint16 maxRebateBps;
+    }
+
+    struct Quote {
+        uint64 priceE4;
+        uint64 size;
+        uint32 expiry;
+        uint8 outcome;
+        Side side;
+        address maker;
+        bytes32 quoteId;
+    }
+
+    struct MatchedBet {
+        uint64 priceE4;
+        uint64 stake;
+        uint8 outcome;
+        Side takerSide;
+        address maker;
+        address taker;
+        bytes32 matchId;
+    }
+
+    struct BalanceSlot {
+        uint128 available;
+        uint128 locked;
+    }
