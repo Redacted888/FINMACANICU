@@ -712,3 +712,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
 
         _marketMatchIds[marketId].push(matchId);
         _bookNotional(marketId, qs.maker, msg.sender, qs.priceE4, stake);
+
+        emit BetMatched(marketId, matchId, qs.maker, msg.sender, qs.outcome, qs.priceE4, stake, ms.takerSide);
+    }
+
+    function getMarketMatches(uint64 marketId) external view returns (bytes32[] memory) {
+        return _marketMatchIds[marketId];
+    }
+
+    // ---------------------------
+    // Settlement
+    // ---------------------------
+    function settleMarket(uint64 marketId, uint8 outcome) external onlyRole(ROLE_ORACLE) {
+        FMTypes.MarketStatus st = marketStatus[marketId];
+        if (st == FMTypes.MarketStatus.Settled || st == FMTypes.MarketStatus.Voided) revert FMK_AlreadyFinal();
+        FMTypes.MarketConfig memory cfg = marketConfig[marketId];
+        if (cfg.closeTime == 0) revert FMK_BadMarket();
+        if (block.timestamp < cfg.closeTime) revert FMK_MarketClosed();
+        if (outcome == 0 || outcome > cfg.outcomes) revert FMK_BadOutcome();
+
+        marketStatus[marketId] = FMTypes.MarketStatus.Settled;
+        marketResult[marketId] = outcome;
+        emit MarketSettled(marketId, outcome, msg.sender);
+    }
+
+    function claim(uint64 marketId, bytes32 matchId) external nonReentrant {
+        FMTypes.MarketStatus st = marketStatus[marketId];
+        if (st != FMTypes.MarketStatus.Settled && st != FMTypes.MarketStatus.Voided) revert FMK_MarketNotSettled();
+        MatchState storage ms = matches[matchId];
+        if (ms.maker == address(0)) revert FMK_BadMarket();
+        bool isMaker = msg.sender == ms.maker;
+        bool isTaker = msg.sender == ms.taker;
+        if (!isMaker && !isTaker) revert FMK_NotParticipant();
+
+        if (isMaker && ms.claimedMaker) revert FMK_Claimed();
+        if (isTaker && ms.claimedTaker) revert FMK_Claimed();
+
+        (uint256 payNet, uint256 fee) = _computePayout(marketId, ms, msg.sender);
+
+        if (isMaker) ms.claimedMaker = true;
+        if (isTaker) ms.claimedTaker = true;
+
+        if (payNet != 0) {
+            pendingPayout[msg.sender] += uint128(payNet);
+        }
+
+        // Fees accumulate as pending payout for treasury role holder (pull based).
+        if (fee != 0) {
+            address tre = roleHolder[ROLE_TREASURY];
+            pendingPayout[tre] += uint128(fee);
+        }
+
