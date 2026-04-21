@@ -610,3 +610,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         if (expiry <= block.timestamp) revert FMK_Expired();
         if (openOrderCount[msg.sender] >= cfg.maxOrdersPerUser) revert FMK_TooManyOrders();
 
+        _touchExposure(msg.sender);
+        uint256 lockReq = _lockFor(side, priceE4, size);
+        _lockFunds(msg.sender, lockReq);
+
+        quoteNonce++;
+        quoteId = keccak256(abi.encodePacked(FMK_ORDER_SEED, block.chainid, address(this), msg.sender, marketId, quoteNonce, outcome, side, priceE4, size, expiry));
+        QuoteState storage qs = quotes[quoteId];
+        if (qs.maker != address(0)) revert FMK_BadMarket();
+
+        qs.maker = msg.sender;
+        qs.priceE4 = priceE4;
+        qs.remaining = size;
+        qs.expiry = expiry;
+        qs.outcome = outcome;
+        qs.side = side;
+        qs.cancelled = false;
+
+        _marketQuoteIds[marketId].push(quoteId);
+        openOrderCount[msg.sender] += 1;
+        emit QuotePosted(marketId, quoteId, msg.sender, outcome, priceE4, size, expiry, side);
+    }
+
+    function reduceQuote(bytes32 quoteId, uint64 newRemaining, uint8 flags) external nonReentrant {
+        QuoteState storage qs = quotes[quoteId];
+        if (qs.maker == address(0)) revert FMK_BadMarket();
+        if (qs.maker != msg.sender && msg.sender != owner) revert FMK_NotParticipant();
+        if (qs.cancelled) revert FMK_AlreadyFinal();
+        if (newRemaining > qs.remaining) revert FMK_BadAmount();
+
+        uint64 oldRemaining = qs.remaining;
+        qs.remaining = newRemaining;
+        if (oldRemaining > newRemaining) {
+            uint256 unlock = _lockFor(qs.side, qs.priceE4, oldRemaining - newRemaining);
+            _unlockFunds(qs.maker, unlock);
+        }
+        emit QuoteReduced(quoteId, newRemaining, flags);
+    }
+
+    function cancelQuote(bytes32 quoteId) external nonReentrant {
+        QuoteState storage qs = quotes[quoteId];
+        if (qs.maker == address(0)) revert FMK_BadMarket();
+        if (qs.maker != msg.sender && msg.sender != owner && msg.sender != roleHolder[ROLE_GUARDIAN]) revert FMK_NotParticipant();
+        if (qs.cancelled) revert FMK_AlreadyFinal();
+
+        qs.cancelled = true;
+        if (qs.remaining != 0) {
+            uint256 unlock = _lockFor(qs.side, qs.priceE4, qs.remaining);
+            _unlockFunds(qs.maker, unlock);
+        }
+        qs.remaining = 0;
+        openOrderCount[qs.maker] = openOrderCount[qs.maker] == 0 ? 0 : (openOrderCount[qs.maker] - 1);
