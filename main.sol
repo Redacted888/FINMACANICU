@@ -814,3 +814,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         if (claimant == ms.taker) return ms.takerSide;
         // maker side is the opposite of taker side
         return _invertSide(ms.takerSide);
+    }
+
+    function _wins(uint8 settled, FMTypes.Side side, uint8 betOutcome) internal pure returns (bool) {
+        // "Outcome" is the target result (1..N).
+        // BACK: wins if settled==betOutcome
+        // LAY: wins if settled!=betOutcome
+        if (side == FMTypes.Side.Back) return settled == betOutcome;
+        return settled != betOutcome;
+    }
+
+    // ---------------------------
+    // Risk ledger (exposure)
+    // ---------------------------
+    function _bookNotional(uint64 marketId, address maker, address taker, uint64 priceE4, uint64 stake) internal {
+        uint64 notion = FMFixed.clampU64(_notionalFor(priceE4, stake));
+
+        // Global / market notional caps.
+        uint64 newGlobal = globalOpenNotional + notion;
+        if (newGlobal > caps.maxMarketNotional * 15) revert FMK_RiskLimit();
+        uint64 newMarket = marketOpenNotional[marketId] + notion;
+        if (newMarket > caps.maxMarketNotional) revert FMK_RiskLimit();
+
+        globalOpenNotional = newGlobal;
+        marketOpenNotional[marketId] = newMarket;
+
+        // Per-user notional caps.
+        _addUserNotional(maker, notion);
+        _addUserNotional(taker, notion);
+    }
+
+    function _addUserNotional(address user, uint64 add) internal {
+        FMTypes.ExposureSlot storage ex = userExposure[user];
+        uint128 next = ex.notional + add;
+        if (next > caps.maxUserNotional) revert FMK_RiskLimit();
+        ex.notional = next;
+        ex.lastTouch = uint64(block.timestamp);
+        emit ExposureTouched(user, next, ex.lastTouch);
+    }
+
+    function _touchExposure(address user) internal {
+        FMTypes.ExposureSlot storage ex = userExposure[user];
+        uint64 nowTs = uint64(block.timestamp);
+        if (ex.lastTouch == 0) {
+            ex.lastTouch = nowTs;
+            return;
+        }
+        uint64 dt = nowTs - ex.lastTouch;
+        if (dt > caps.maxExposureWindow) {
+            // decay notional smoothly by 50% after a window (simple, deterministic, no randomness).
+            ex.notional = ex.notional / 2;
+            ex.lastTouch = nowTs;
