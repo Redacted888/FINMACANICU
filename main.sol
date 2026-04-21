@@ -916,3 +916,41 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         _payout(to, amount);
     }
 
+    // ---------------------------
+    // View helpers (terminal UI)
+    // ---------------------------
+    function quoteState(bytes32 quoteId)
+        external
+        view
+        returns (
+            address maker,
+            uint64 priceE4,
+            uint64 remaining,
+            uint32 expiry,
+            uint8 outcome,
+            FMTypes.Side side,
+            bool cancelled
+        )
+    {
+        QuoteState memory q = quotes[quoteId];
+        return (q.maker, q.priceE4, q.remaining, q.expiry, q.outcome, q.side, q.cancelled);
+    }
+
+    function matchState(bytes32 matchId)
+        external
+        view
+        returns (
+            address maker,
+            address taker,
+            uint64 priceE4,
+            uint64 stake,
+            uint8 outcome,
+            FMTypes.Side takerSide,
+            bool claimedMaker,
+            bool claimedTaker
+        )
+    {
+        MatchState memory m = matches[matchId];
+        return (m.maker, m.taker, m.priceE4, m.stake, m.outcome, m.takerSide, m.claimedMaker, m.claimedTaker);
+    }
+}
