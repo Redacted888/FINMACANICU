@@ -865,3 +865,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
             // decay notional smoothly by 50% after a window (simple, deterministic, no randomness).
             ex.notional = ex.notional / 2;
             ex.lastTouch = nowTs;
+        }
+    }
+
+    function _notionalFor(uint64 priceE4, uint64 stake) internal pure returns (uint256) {
+        // Notional approximation in collateral units:
+        // - BACK: stake * price
+        // - LAY: stake * (price - 1)
+        // We'll use stake * price for an upper bound to be conservative.
+        return (uint256(stake) * uint256(priceE4)) / 10_000;
+    }
+
+    // ---------------------------
+    // Funds locking (for open quotes & matches)
+    // ---------------------------
+    function _lockFor(FMTypes.Side side, uint64 priceE4, uint64 stake) internal pure returns (uint256) {
+        // BACK lock: stake
+        // LAY lock: liability approximated as stake * (price - 1)
+        if (side == FMTypes.Side.Back) return stake;
+        if (priceE4 <= 10_000) return stake; // minimal liability at 1.0
+        uint256 extra = (uint256(stake) * (uint256(priceE4) - 10_000)) / 10_000;
+        return stake + extra;
+    }
+
+    function _lockFunds(address user, uint256 amount) internal {
+        FMTypes.BalanceSlot storage b = _bal[user];
+        if (b.available < amount) revert FMK_Insufficient();
+        b.available -= uint128(amount);
+        b.locked += uint128(amount);
+    }
+
+    function _unlockFunds(address user, uint256 amount) internal {
+        FMTypes.BalanceSlot storage b = _bal[user];
+        if (b.locked < amount) revert FMK_Insufficient();
+        b.locked -= uint128(amount);
+        b.available += uint128(amount);
+    }
+
+    function _invertSide(FMTypes.Side s) internal pure returns (FMTypes.Side) {
+        return s == FMTypes.Side.Back ? FMTypes.Side.Lay : FMTypes.Side.Back;
+    }
+
+    // ---------------------------
+    // Guardian escape hatch (post-mortem only)
+    // ---------------------------
+    function guardianSweep(address to, uint256 amount, bytes32 note) external onlyRole(ROLE_GUARDIAN) whenPaused nonReentrant {
+        // The note parameter forces an explicit audit tag per sweep call.
+        // It is not stored, but shows up in calldata traces.
+        if (note == bytes32(0)) revert FMK_BadConfig();
+        _payout(to, amount);
+    }
+
