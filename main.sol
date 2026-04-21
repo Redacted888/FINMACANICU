@@ -559,3 +559,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         emit CollateralDeposited(user, address(0), amount, _bal[user].available);
     }
 
+    function balanceOf(address user) external view returns (uint256 available, uint256 locked) {
+        FMTypes.BalanceSlot memory b = _bal[user];
+        return (b.available, b.locked);
+    }
+
+    function queueWithdraw(uint256 amount) external whenNotPaused nonReentrant {
+        if (amount == 0) revert FMK_BadAmount();
+        FMTypes.BalanceSlot storage b = _bal[msg.sender];
+        if (b.available < amount) revert FMK_Insufficient();
+        b.available -= uint128(amount);
+        pendingPayout[msg.sender] += uint128(amount);
+        emit CollateralWithdrawQueued(msg.sender, amount, pendingPayout[msg.sender]);
+    }
+
+    function withdraw() external nonReentrant {
+        uint128 amt = pendingPayout[msg.sender];
+        if (amt == 0) revert FMK_BadAmount();
+        pendingPayout[msg.sender] = 0;
+        _payout(msg.sender, amt);
+        emit CollateralWithdrawn(msg.sender, amt);
+    }
+
+    function _payout(address to, uint256 amount) internal {
+        if (collateralToken == address(0)) {
+            (bool ok,) = to.call{value: amount}("");
+            if (!ok) revert FMK_TransferFailed();
+        } else {
+            collateralToken.safeTransfer(to, amount);
+        }
+    }
+
+    // ---------------------------
+    // Quote engine
+    // ---------------------------
+    function postQuote(
+        uint64 marketId,
+        uint8 outcome,
+        FMTypes.Side side,
+        uint64 priceE4,
+        uint64 size,
+        uint32 expiry
+    ) external whenNotPaused nonReentrant returns (bytes32 quoteId) {
+        FMTypes.MarketConfig memory cfg = marketConfig[marketId];
+        if (marketStatus[marketId] != FMTypes.MarketStatus.Open) revert FMK_MarketNotOpen();
+        if (block.timestamp >= cfg.closeTime) revert FMK_MarketClosed();
+        if (outcome == 0 || outcome > cfg.outcomes) revert FMK_BadOutcome();
+        if (priceE4 < 1_000 || priceE4 > 99_900) revert FMK_BadPrice(); // 0.1000..9.9900 (terminal-ish odds scale)
+        if (size < cfg.minStake || size > cfg.maxStake) revert FMK_BadAmount();
+        if (expiry <= block.timestamp) revert FMK_Expired();
+        if (openOrderCount[msg.sender] >= cfg.maxOrdersPerUser) revert FMK_TooManyOrders();
+
