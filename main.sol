@@ -763,3 +763,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
             pendingPayout[tre] += uint128(fee);
         }
 
+        emit BetClaimed(marketId, matchId, msg.sender, payNet, fee);
+    }
+
+    function _computePayout(uint64 marketId, MatchState memory ms, address claimant) internal view returns (uint256 net, uint256 fee) {
+        FMTypes.MarketStatus st = marketStatus[marketId];
+        FMTypes.MarketConfig memory cfg = marketConfig[marketId];
+
+        // If voided: everyone gets stake refund (less zero fee).
+        if (st == FMTypes.MarketStatus.Voided) {
+            uint256 refund = _lockFor(_sideOf(claimant, ms), ms.priceE4, ms.stake);
+            return (refund, 0);
+        }
+
+        uint8 winOutcome = marketResult[marketId];
+        FMTypes.Side claimantSide = _sideOf(claimant, ms);
+        bool claimantWins = _wins(winOutcome, claimantSide, ms.outcome);
+
+        uint256 stake = ms.stake;
+        uint256 gross;
+        if (claimantWins) {
+            // Payoff model:
+            // - BACK wins: payout = stake * price
+            // - LAY wins: payout = stake (keeps stake)
+            // Price is scaled by 1e4 and represents decimal odds.
+            if (claimantSide == FMTypes.Side.Back) {
+                gross = (stake * ms.priceE4) / 10_000;
+            } else {
+                gross = stake;
+            }
+        } else {
+            gross = 0;
+        }
+
+        uint256 f = FMFixed.fee(gross, cfg.feeBps);
+        uint256 rebate = 0;
+        if (claimant == ms.maker && cfg.makerRebateBps != 0 && f != 0) {
+            rebate = FMFixed.fee(f, cfg.makerRebateBps);
+        }
+
+        uint256 netP = gross;
+        if (f != 0) {
+            netP = gross - f + rebate;
+            f = f - rebate;
+        }
+        return (netP, f);
+    }
+
+    function _sideOf(address claimant, MatchState memory ms) internal pure returns (FMTypes.Side) {
+        if (claimant == ms.taker) return ms.takerSide;
+        // maker side is the opposite of taker side
+        return _invertSide(ms.takerSide);
