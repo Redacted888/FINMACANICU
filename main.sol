@@ -661,3 +661,54 @@ contract FinMacanicu is PausableSwitch, ReentrancyShield {
         }
         qs.remaining = 0;
         openOrderCount[qs.maker] = openOrderCount[qs.maker] == 0 ? 0 : (openOrderCount[qs.maker] - 1);
+        emit QuoteCancelled(quoteId, msg.sender);
+    }
+
+    function getMarketQuotes(uint64 marketId) external view returns (bytes32[] memory) {
+        return _marketQuoteIds[marketId];
+    }
+
+    // ---------------------------
+    // Matching engine
+    // ---------------------------
+    function takeQuote(uint64 marketId, bytes32 quoteId, uint64 stake) external whenNotPaused nonReentrant returns (bytes32 matchId) {
+        FMTypes.MarketConfig memory cfg = marketConfig[marketId];
+        if (marketStatus[marketId] != FMTypes.MarketStatus.Open) revert FMK_MarketNotOpen();
+        if (block.timestamp >= cfg.closeTime) revert FMK_MarketClosed();
+        if (stake < cfg.minStake || stake > cfg.maxStake) revert FMK_BadAmount();
+
+        QuoteState storage qs = quotes[quoteId];
+        if (qs.maker == address(0)) revert FMK_BadMarket();
+        if (qs.cancelled) revert FMK_AlreadyFinal();
+        if (qs.remaining == 0) revert FMK_NoLiquidity();
+        if (qs.expiry <= block.timestamp) revert FMK_Expired();
+        if (stake > qs.remaining) stake = qs.remaining;
+        if (qs.maker == msg.sender) revert FMK_NotParticipant();
+        if (qs.outcome == 0 || qs.outcome > cfg.outcomes) revert FMK_BadOutcome();
+
+        _touchExposure(msg.sender);
+        uint256 takerLock = _lockFor(_invertSide(qs.side), qs.priceE4, stake);
+        _lockFunds(msg.sender, takerLock);
+
+        // Decrement maker quote and release excess maker lock delta is handled by reduceQuote-style logic here.
+        qs.remaining -= stake;
+        if (qs.remaining == 0) {
+            openOrderCount[qs.maker] = openOrderCount[qs.maker] == 0 ? 0 : (openOrderCount[qs.maker] - 1);
+        }
+
+        matchNonce++;
+        matchId = keccak256(abi.encodePacked(FMK_MATCH_SEED, block.chainid, address(this), marketId, matchNonce, quoteId, qs.maker, msg.sender, qs.outcome, qs.side, qs.priceE4, stake));
+        MatchState storage ms = matches[matchId];
+        if (ms.maker != address(0)) revert FMK_BadMarket();
+
+        ms.maker = qs.maker;
+        ms.taker = msg.sender;
+        ms.priceE4 = qs.priceE4;
+        ms.stake = stake;
+        ms.outcome = qs.outcome;
+        ms.takerSide = _invertSide(qs.side);
+        ms.claimedMaker = false;
+        ms.claimedTaker = false;
+
+        _marketMatchIds[marketId].push(matchId);
+        _bookNotional(marketId, qs.maker, msg.sender, qs.priceE4, stake);
